@@ -2,17 +2,22 @@
 
 namespace App\Filament\Resources;
 
+use App\Exports\DataPersonelExport;
+use Filament\Forms;
+use Filament\Tables;
+use Filament\Forms\Form;
+use Filament\Tables\Table;
+use App\Models\DataPersonel;
+use Filament\Resources\Resource;
+use Filament\Tables\Grouping\Group;
+use Filament\Notifications\Notification;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Resources\DataPersonelResource\Pages;
 use App\Filament\Resources\DataPersonelResource\RelationManagers;
 use App\Filament\Resources\DataPersonelResource\Widgets\DataPersonelStats;
-use App\Models\DataPersonel;
-use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\Resource;
-use Filament\Tables;
-use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
+use pxlrbt\FilamentExcel\Actions\Tables\ExportBulkAction;
+use pxlrbt\FilamentExcel\Exports\ExcelExport;
 
 class DataPersonelResource extends Resource
 {
@@ -77,6 +82,10 @@ class DataPersonelResource extends Resource
                     ->label('JK')
                     ->searchable()
                     ->sortable(),
+                Tables\Columns\IconColumn::make('is_selected')
+                    ->label('Status')
+                    ->boolean()
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('baju_pdh')
                     ->label('Baju PDH')
                     ->searchable()
@@ -116,14 +125,123 @@ class DataPersonelResource extends Resource
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
-                //
+                Tables\Filters\Filter::make('Status')
+                    ->form([
+                        Forms\Components\Select::make('status')
+                            ->label('Status')
+                            ->options([
+                                'filled' => 'Terisi',
+                                'empty' => 'Tidak Terisi',
+                            ]),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when(
+                                isset($data['status']) && $data['status'] === 'filled',
+                                fn(Builder $query): Builder => $query->where(function (Builder $query) {
+                                    $query->whereNotNull('baju_pdh')
+                                        ->orWhereNotNull('celana_pdh')
+                                        ->orWhereNotNull('pdh')
+                                        ->orWhereNotNull('baju_pdu')
+                                        ->orWhereNotNull('celana_pdu')
+                                        ->orWhereNotNull('pdu')
+                                        ->orWhereNotNull('pdl');
+                                })
+                            )
+                            ->when(
+                                isset($data['status']) && $data['status'] === 'empty',
+                                fn(Builder $query): Builder => $query->whereNull('baju_pdh')
+                                    ->whereNull('celana_pdh')
+                                    ->whereNull('pdh')
+                                    ->whereNull('baju_pdu')
+                                    ->whereNull('celana_pdu')
+                                    ->whereNull('pdu')
+                                    ->whereNull('pdl')
+                            );
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if (!empty($data['status'])) {
+                            $indicators['status'] = $data['status'] === 'filled' ? 'Status: Terisi' : 'Status: Tidak Terisi';
+                        }
+                        return $indicators;
+                    }),
+
+                Tables\Filters\Filter::make('Duplicate NRP')
+                    ->form([
+                        Forms\Components\Checkbox::make('duplicate_nrp')
+                            ->label('Tampilkan hanya NRP duplikat')
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when($data['duplicate_nrp'] ?? false, function ($query) {
+                            $query->whereIn('nrp', function ($subQuery) {
+                                $subQuery->select('nrp')
+                                    ->from('data_personels')
+                                    ->groupBy('nrp')
+                                    ->havingRaw('COUNT(*) > 1');
+                            });
+                        });
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        $indicators = [];
+                        if (!empty($data['duplicate_nrp'])) {
+                            $indicators['duplicate_nrp'] = 'NRP: Duplikat';
+                        }
+                        return $indicators;
+                    }),
+
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
             ])
+            ->groups([
+                Group::make('nrp')
+                    ->label('NRP')
+                    ->collapsible(),
+                Group::make('pangkat')
+                    ->collapsible(),
+            ])
+            ->groupingSettingsInDropdownOnDesktop()
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    // Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\BulkAction::make('Selected yang dipilih')
+                        ->requiresConfirmation()
+                        ->icon('heroicon-o-check-circle')
+                        ->color('success')
+                        ->action(function (\Illuminate\Database\Eloquent\Collection $records): void {
+                            foreach ($records as $record) {
+                                $record->update([
+                                    'is_selected' => true,
+                                ]);
+                            }
+
+                            Notification::make()
+                                ->title('Data yang dipilih berhasil di Selected')
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    Tables\Actions\BulkAction::make('Batalkan yang dipilih')
+                        ->requiresConfirmation()
+                        ->icon('heroicon-o-x-circle')
+                        ->color('danger')
+                        ->action(function (\Illuminate\Database\Eloquent\Collection $records): void {
+                            foreach ($records as $record) {
+                                $record->update([
+                                    'is_selected' => false,
+                                ]);
+                            }
+
+                            Notification::make()
+                                ->title('Data yang dipilih berhasil di atalkan')
+                                ->success()
+                                ->send();
+                        })
+                        ->deselectRecordsAfterCompletion(),
+                    ExportBulkAction::make()
+                        ->label('Eksport data yang dipilih'),
                 ]),
             ]);
     }

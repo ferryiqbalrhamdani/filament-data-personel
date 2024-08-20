@@ -34,6 +34,7 @@ class DataPersonelImport implements ToCollection, WithHeadingRow
                     'celana_pdu' => $row['celana_pdu'] ?? null,
                     'pdu' => $row['pdu'] ?? null,
                     'pdl' => $row['pdl'] ?? null,
+                    'kelompok_pangkat' => $row['kelompok_pangkat'] ?? null,
                 ]);
             } catch (\Exception $e) {
                 Log::error('Error importing row: ' . json_encode($row));

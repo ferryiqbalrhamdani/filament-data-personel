@@ -23,5 +23,7 @@ class DataPersonel extends Model
         'celana_pdu',
         'pdu',
         'pdl',
+        'kelompok_pangkat',
+        'is_selected',
     ];
 }

@@ -24,8 +24,26 @@ class DataPersonelStats extends BaseWidget
     {
         return [
             Stat::make('Total Personel', number_format($this->getPageTableQuery()->count(), 0, ',', '.')),
-            Stat::make('Total Pati', number_format($this->getPageTableQuery()->count(), 0, ',', '.')),
-            Stat::make('Total Pamenpama', number_format($this->getPageTableQuery()->count(), 0, ',', '.')),
+            Stat::make('Total Pati', function () {
+                return number_format(
+                    $this->getPageTableQuery()
+                        ->where('kelompok_pangkat', 'Pati')
+                        ->count(),
+                    0,
+                    ',',
+                    '.'
+                );
+            }),
+            Stat::make('Total Pamenpama', function () {
+                return number_format(
+                    $this->getPageTableQuery()
+                        ->where('kelompok_pangkat', '<', 'Pamenpama')
+                        ->count(),
+                    0,
+                    ',',
+                    '.'
+                );
+            }),
         ];
     }
 }
